@@ -1,8 +1,8 @@
 from typing import Callable
 
 import torch
-from nnunetv2.utilities.ddp_allgather import AllGatherGrad
 from torch import nn
+from nnunetv2.utilities.ddp_allgather import AllGatherGrad
 
 
 class SoftDiceLoss(nn.Module):
@@ -116,6 +116,9 @@ class MemoryEfficientSoftDiceLoss(nn.Module):
         dc = (2 * intersect + self.smooth) / (sum_gt + sum_pred + float(self.smooth)).clamp_min(1e-8)
 
         dc = dc.mean()
+        # NOTE: brooke added print log
+        # with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_0/MemEffSoftDiceLoss.txt', 'a') as f:
+        #     f.write(f'{dc}\n')
         return -dc
 
 
@@ -123,7 +126,7 @@ def get_tp_fp_fn_tn(net_output, gt, axes=None, mask=None, square=False):
     """
     net_output must be (b, c, x, y(, z)))
     gt must be a label map (shape (b, 1, x, y(, z)) OR shape (b, x, y(, z))) or one hot encoding (b, c, x, y(, z))
-    if mask is provided it must have shape (b, 1, x, y(, z)))
+    if mask is provided it m.ust have shape (b, 1, x, y(, z)))
     :param net_output:
     :param gt:
     :param axes: can be (, ) = no summation
@@ -172,10 +175,10 @@ def get_tp_fp_fn_tn(net_output, gt, axes=None, mask=None, square=False):
         tn = tn ** 2
 
     if len(axes) > 0:
-        tp = tp.sum(dim=axes, keepdim=False, dtype=torch.float32)
-        fp = fp.sum(dim=axes, keepdim=False, dtype=torch.float32)
-        fn = fn.sum(dim=axes, keepdim=False, dtype=torch.float32)
-        tn = tn.sum(dim=axes, keepdim=False, dtype=torch.float32)
+        tp = tp.sum(dim=axes, keepdim=False)
+        fp = fp.sum(dim=axes, keepdim=False)
+        fn = fn.sum(dim=axes, keepdim=False)
+        tn = tn.sum(dim=axes, keepdim=False)
 
     return tp, fp, fn, tn
 

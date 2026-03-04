@@ -152,8 +152,11 @@ class LocalLogger:
             'val_losses': list(),
             'lrs': list(),
             'epoch_start_timestamps': list(),
-            'epoch_end_timestamps': list()
-        }
+            'epoch_end_timestamps': list(),
+            'tp':list(),
+            'tn':list(),
+            'fn':list()
+            }
         self.verbose = verbose
         # shut up, this logging is great
 

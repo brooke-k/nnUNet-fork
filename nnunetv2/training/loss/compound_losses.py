@@ -1,8 +1,8 @@
 import torch
+from torch import nn
+from nnunetv2.utilities.helpers import softmax_helper_dim1
 from nnunetv2.training.loss.dice import SoftDiceLoss, MemoryEfficientSoftDiceLoss
 from nnunetv2.training.loss.robust_ce_loss import RobustCrossEntropyLoss, TopKLoss
-from nnunetv2.utilities.helpers import softmax_helper_dim1
-from torch import nn
 
 
 class DC_and_CE_loss(nn.Module):
@@ -52,7 +52,15 @@ class DC_and_CE_loss(nn.Module):
         ce_loss = self.ce(net_output, target[:, 0]) \
             if self.weight_ce != 0 and (self.ignore_label is None or num_fg > 0) else 0
 
+            # NOTE: brooke added print log
+        # with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_0/loss_out.txt', 'a') as f:
+        #     f.write(f'\t{self.weight_dice}/{dc_loss}\n')
+
+
         result = self.weight_ce * ce_loss + self.weight_dice * dc_loss
+        with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_2/DC_CE_LOSS_RESULT.txt', 'a') as f:
+            f.write(f'CE_loss: {ce_loss}\n')
+            f.write(f'DC_loss: {ce_loss}\n\n')
         return result
 
 
@@ -82,6 +90,9 @@ class DC_and_BCE_loss(nn.Module):
 
     def forward(self, net_output: torch.Tensor, target: torch.Tensor):
         if self.use_ignore_label:
+            # NOTE: brooke added print log
+            # with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_0/loss_out.txt', 'a') as f:
+            #     f.write('self.use_ignore_label\n')
             # target is one hot encoded here. invert it so that it is True wherever we can compute the loss
             if target.dtype == torch.bool:
                 mask = ~target[:, -1:]
@@ -92,6 +103,9 @@ class DC_and_BCE_loss(nn.Module):
             # target_regions = torch.clone(target[:, :-1])
             target_regions = target[:, :-1]
         else:
+            # NOTE: brooke added print log
+            # with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_0/loss_out.txt', 'a') as f:
+            #     f.write('NOT self.use_ignore_label\n')
             target_regions = target
             mask = None
 

@@ -1,71 +1,71 @@
-import inspect
-import multiprocessing
 import os
-import shutil
 import sys
+import shutil
+import inspect
 import warnings
+import multiprocessing
 from copy import deepcopy
-from datetime import datetime
 from time import time, sleep
+from datetime import datetime
 from typing import Tuple, Union, List
 
-import numpy as np
 import torch
-from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
-from batchgenerators.dataloading.nondet_multi_threaded_augmenter import NonDetMultiThreadedAugmenter
-from batchgenerators.dataloading.single_threaded_augmenter import SingleThreadedAugmenter
-from batchgenerators.utilities.file_and_folder_operations import join, load_json, isfile, save_json, maybe_mkdir_p
-from batchgeneratorsv2.helpers.scalar_type import RandomScalar
-from batchgeneratorsv2.transforms.base.basic_transform import BasicTransform
-from batchgeneratorsv2.transforms.intensity.brightness import MultiplicativeBrightnessTransform
-from batchgeneratorsv2.transforms.intensity.contrast import ContrastTransform, BGContrast
-from batchgeneratorsv2.transforms.intensity.gamma import GammaTransform
-from batchgeneratorsv2.transforms.intensity.gaussian_noise import GaussianNoiseTransform
-from batchgeneratorsv2.transforms.nnunet.random_binary_operator import ApplyRandomBinaryOperatorTransform
-from batchgeneratorsv2.transforms.nnunet.remove_connected_components import \
-    RemoveRandomConnectedComponentFromOneHotEncodingTransform
-from batchgeneratorsv2.transforms.nnunet.seg_to_onehot import MoveSegAsOneHotToDataTransform
-from batchgeneratorsv2.transforms.noise.gaussian_blur import GaussianBlurTransform
-from batchgeneratorsv2.transforms.spatial.low_resolution import SimulateLowResolutionTransform
-from batchgeneratorsv2.transforms.spatial.mirroring import MirrorTransform
-from batchgeneratorsv2.transforms.spatial.spatial import SpatialTransform
-from batchgeneratorsv2.transforms.utils.compose import ComposeTransforms
-from batchgeneratorsv2.transforms.utils.deep_supervision_downsampling import DownsampleSegForDSTransform
-from batchgeneratorsv2.transforms.utils.nnunet_masking import MaskImageTransform
-from batchgeneratorsv2.transforms.utils.pseudo2d import Convert3DTo2DTransform, Convert2DTo3DTransform
-from batchgeneratorsv2.transforms.utils.random import RandomTransform
-from batchgeneratorsv2.transforms.utils.remove_label import RemoveLabelTansform
-from batchgeneratorsv2.transforms.utils.seg_to_regions import ConvertSegmentationToRegionsTransform
+import numpy as np
+from torch import GradScaler
 from torch import autocast, nn
+from torch.cuda import device_count
 from torch import distributed as dist
 from torch._dynamo import OptimizedModule
-from torch.cuda import device_count
-from torch import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
+from batchgeneratorsv2.helpers.scalar_type import RandomScalar
+from batchgeneratorsv2.transforms.utils.random import RandomTransform
+from batchgeneratorsv2.transforms.intensity.gamma import GammaTransform
+from batchgeneratorsv2.transforms.utils.compose import ComposeTransforms
+from batchgeneratorsv2.transforms.spatial.spatial import SpatialTransform
+from batchgeneratorsv2.transforms.spatial.mirroring import MirrorTransform
+from batchgeneratorsv2.transforms.base.basic_transform import BasicTransform
+from batchgeneratorsv2.transforms.utils.remove_label import RemoveLabelTansform
+from batchgeneratorsv2.transforms.utils.nnunet_masking import MaskImageTransform
+from batchgeneratorsv2.transforms.noise.gaussian_blur import GaussianBlurTransform
+from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
+from batchgeneratorsv2.transforms.intensity.gaussian_noise import GaussianNoiseTransform
+from batchgenerators.dataloading.single_threaded_augmenter import SingleThreadedAugmenter
+from batchgeneratorsv2.transforms.intensity.contrast import ContrastTransform, BGContrast
+from batchgeneratorsv2.transforms.nnunet.seg_to_onehot import MoveSegAsOneHotToDataTransform
+from batchgeneratorsv2.transforms.spatial.low_resolution import SimulateLowResolutionTransform
+from batchgeneratorsv2.transforms.intensity.brightness import MultiplicativeBrightnessTransform
+from batchgeneratorsv2.transforms.utils.seg_to_regions import ConvertSegmentationToRegionsTransform
+from batchgenerators.dataloading.nondet_multi_threaded_augmenter import NonDetMultiThreadedAugmenter
+from batchgeneratorsv2.transforms.utils.pseudo2d import Convert3DTo2DTransform, Convert2DTo3DTransform
+from batchgeneratorsv2.transforms.utils.deep_supervision_downsampling import DownsampleSegForDSTransform
+from batchgeneratorsv2.transforms.nnunet.random_binary_operator import ApplyRandomBinaryOperatorTransform
+from batchgenerators.utilities.file_and_folder_operations import join, load_json, isfile, save_json, maybe_mkdir_p
+from batchgeneratorsv2.transforms.nnunet.remove_connected_components import RemoveRandomConnectedComponentFromOneHotEncodingTransform
 
-from nnunetv2.configuration import ANISO_THRESHOLD, default_num_processes
-from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder
-from nnunetv2.inference.export_prediction import export_prediction_from_logits, resample_and_save
-from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
-from nnunetv2.inference.sliding_window_prediction import compute_gaussian
 from nnunetv2.paths import nnUNet_preprocessed, nnUNet_results
-from nnunetv2.training.data_augmentation.compute_initial_patch_size import get_patch_size
-from nnunetv2.training.dataloading.nnunet_dataset import infer_dataset_class
-from nnunetv2.training.dataloading.data_loader import nnUNetDataLoader
-from nnunetv2.training.logging.nnunet_logger import MetaLogger
-from nnunetv2.training.loss.compound_losses import DC_and_CE_loss, DC_and_BCE_loss
-from nnunetv2.training.loss.deep_supervision import DeepSupervisionWrapper
-from nnunetv2.training.loss.dice import get_tp_fp_fn_tn, MemoryEfficientSoftDiceLoss
-from nnunetv2.training.lr_scheduler.polylr import PolyLRScheduler
 from nnunetv2.utilities.collate_outputs import collate_outputs
-from nnunetv2.utilities.crossval_split import generate_crossval_split
-from nnunetv2.utilities.default_n_proc_DA import get_allowed_n_proc_DA
-from nnunetv2.utilities.file_path_utilities import check_workers_alive_and_busy
-from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
+from nnunetv2.training.logging.nnunet_logger import MetaLogger
+from nnunetv2.training.lr_scheduler.polylr import PolyLRScheduler
 from nnunetv2.utilities.helpers import empty_cache, dummy_context
-from nnunetv2.utilities.label_handling.label_handling import convert_labelmap_to_one_hot, determine_num_input_channels
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+from nnunetv2.utilities.crossval_split import generate_crossval_split
+from nnunetv2.training.dataloading.data_loader import nnUNetDataLoader
+from nnunetv2.utilities.default_n_proc_DA import get_allowed_n_proc_DA
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
+from nnunetv2.configuration import ANISO_THRESHOLD, default_num_processes
+from nnunetv2.inference.sliding_window_prediction import compute_gaussian
+from nnunetv2.training.loss.deep_supervision import DeepSupervisionWrapper
+from nnunetv2.training.dataloading.nnunet_dataset import infer_dataset_class
+from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
+from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder
+from nnunetv2.utilities.file_path_utilities import check_workers_alive_and_busy
+from nnunetv2.training.loss.compound_losses import DC_and_CE_loss, DC_and_BCE_loss
+from nnunetv2.training.loss.dice import get_tp_fp_fn_tn, MemoryEfficientSoftDiceLoss
+from nnunetv2.training.data_augmentation.compute_initial_patch_size import get_patch_size
+from nnunetv2.inference.export_prediction import export_prediction_from_logits, resample_and_save
+from nnunetv2.utilities.label_handling.label_handling import convert_labelmap_to_one_hot, determine_num_input_channels
 
+import nibabel as nib
 
 class nnUNetTrainer(object):
     def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict,
@@ -412,8 +412,9 @@ class nnUNetTrainer(object):
                                    use_ignore_label=self.label_manager.ignore_label is not None,
                                    dice_class=MemoryEfficientSoftDiceLoss)
         else:
+            # PART: DC and CE Loss
             loss = DC_and_CE_loss({'batch_dice': self.configuration_manager.batch_dice,
-                                   'smooth': 1e-5, 'do_bg': False, 'ddp': self.is_ddp}, {}, weight_ce=1, weight_dice=1,
+                                   'smooth': 1e-5, 'do_bg': False, 'ddp': self.is_ddp}, {}, weight_ce=1e-10, weight_dice=1,
                                   ignore_label=self.label_manager.ignore_label, dice_class=MemoryEfficientSoftDiceLoss)
 
         if self._do_i_compile():
@@ -989,11 +990,14 @@ class nnUNetTrainer(object):
         data = batch['data']
         target = batch['target']
 
+
         data = data.to(self.device, non_blocking=True)
         if isinstance(target, list):
             target = [i.to(self.device, non_blocking=True) for i in target]
         else:
             target = target.to(self.device, non_blocking=True)
+
+
 
         self.optimizer.zero_grad(set_to_none=True)
         # Autocast can be annoying
@@ -1015,6 +1019,8 @@ class nnUNetTrainer(object):
             l.backward()
             torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
             self.optimizer.step()
+
+
         return {'loss': l.detach().cpu().numpy()}
 
     def on_train_epoch_end(self, train_outputs: List[dict]):
@@ -1046,8 +1052,16 @@ class nnUNetTrainer(object):
         # If the device_type is 'cpu' then it's slow as heck and needs to be disabled.
         # If the device_type is 'mps' then it will complain that mps is not implemented, even if enabled=False is set. Whyyyyyyy. (this is why we don't make use of enabled=False)
         # So autocast will only be active if we have a cuda device.
+        # NOTE: brooke added print log
+        # with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_0/loss_out.txt', 'a') as f:
+        #     f.write(f'\nVALIDATION ----------\n')
+
         with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
             output = self.network(data)
+
+            # with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_0/loss_out.txt', 'a') as f:
+            #     f.write(f'output type: {type(output)}\n')
+
             del data
             l = self.loss(output, target)
 
@@ -1063,6 +1077,7 @@ class nnUNetTrainer(object):
             predicted_segmentation_onehot = (torch.sigmoid(output) > 0.5).long()
         else:
             # no need for softmax
+            # NOTE: this is what is used for ena1 training
             output_seg = output.argmax(1)[:, None]
             predicted_segmentation_onehot = torch.zeros(output.shape, device=output.device, dtype=torch.float16)
             predicted_segmentation_onehot.scatter_(1, output_seg, 1)
@@ -1096,6 +1111,9 @@ class nnUNetTrainer(object):
             tp_hard = tp_hard[1:]
             fp_hard = fp_hard[1:]
             fn_hard = fn_hard[1:]
+        # NOTE: brooke added print log
+        # with open('/home/brooke.kindleman/ena1-aim2/202602240000/nnUNet_results/Dataset710_Stroke/nnUNetTrainer_250epochs__nnUNetPlans__3d_fullres/fold_0/loss_out.txt', 'a') as f:
+        #     f.write(f'\n----------\n')
 
         return {'loss': l.detach().cpu().numpy(), 'tp_hard': tp_hard, 'fp_hard': fp_hard, 'fn_hard': fn_hard}
 
@@ -1125,6 +1143,9 @@ class nnUNetTrainer(object):
             loss_here = np.vstack(losses_val).mean()
         else:
             loss_here = np.mean(outputs_collated['loss'])
+
+        self.print_to_log_file(f'TP: {tp.mean()} | FP: {fp.mean()} | FN: {fn.mean()}')
+
 
         global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in zip(tp, fp, fn)]]
         mean_fg_dice = np.nanmean(global_dc_per_class)

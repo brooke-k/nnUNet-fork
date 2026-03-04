@@ -12,27 +12,27 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 import math
-import multiprocessing
 import shutil
+import multiprocessing
 from time import sleep
 from typing import Tuple
 
 import SimpleITK
 import numpy as np
 import pandas as pd
-from batchgenerators.utilities.file_and_folder_operations import *
 from tqdm import tqdm
 from typing import Union
+from batchgenerators.utilities.file_and_folder_operations import *
 
 import nnunetv2
 from nnunetv2.paths import nnUNet_preprocessed, nnUNet_raw
 from nnunetv2.preprocessing.cropping.cropping import crop_to_nonzero
-from nnunetv2.preprocessing.resampling.default_resampling import compute_new_shape
 from nnunetv2.training.dataloading.nnunet_dataset import nnUNetDatasetBlosc2
-from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
-from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 from nnunetv2.utilities.utils import get_filenames_of_train_images_and_targets
+from nnunetv2.preprocessing.resampling.default_resampling import compute_new_shape
+from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
+from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 
 
 class DefaultPreprocessor(object):
@@ -45,6 +45,9 @@ class DefaultPreprocessor(object):
     def run_case_npy(self, data: np.ndarray, seg: Union[np.ndarray, None], properties: dict,
                      plans_manager: PlansManager, configuration_manager: ConfigurationManager,
                      dataset_json: Union[dict, str]):
+
+        print('Called run_case_npy()')
+
         # let's not mess up the inputs!
         data = data.astype(np.float32)  # this creates a copy
         if seg is not None:
@@ -59,11 +62,18 @@ class DefaultPreprocessor(object):
             seg = seg.transpose([0, *[i + 1 for i in plans_manager.transpose_forward]])
         original_spacing = [properties['spacing'][i] for i in plans_manager.transpose_forward]
 
+
         # crop, remember to store size before cropping!
         shape_before_cropping = data.shape[1:]
         properties['shape_before_cropping'] = shape_before_cropping
         # this command will generate a segmentation. This is important because of the nonzero mask which we may need
+        # NOTE: crop_to_nonzero does not cause the segmentations to get set to 0
         data, seg, bbox = crop_to_nonzero(data, seg)
+
+        with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+            f.write(f'\nrun_case_npy::crop_to_nonzero seg sum: {np.sum(seg)}')
+
+
         properties['bbox_used_for_cropping'] = bbox
         # print(data.shape, seg.shape)
         properties['shape_after_cropping_and_before_resampling'] = data.shape[1:]
@@ -88,6 +98,10 @@ class DefaultPreprocessor(object):
         old_shape = data.shape[1:]
         data = configuration_manager.resampling_fn_data(data, new_shape, original_spacing, target_spacing)
         seg = configuration_manager.resampling_fn_seg(seg, new_shape, original_spacing, target_spacing)
+
+        with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+            f.write(f'\nrun_case_npy::resampling_fn_seg seg sum: {np.sum(seg)}')
+
         if self.verbose:
             print(f'old shape: {old_shape}, new_shape: {new_shape}, old_spacing: {original_spacing}, '
                   f'new_spacing: {target_spacing}, fn_data: {configuration_manager.resampling_fn_data}')
@@ -111,10 +125,22 @@ class DefaultPreprocessor(object):
             properties['class_locations'] = self._sample_foreground_locations(seg, collect_for_this,
                                                                                    verbose=self.verbose)
             seg = self.modify_seg_fn(seg, plans_manager, dataset_json, configuration_manager)
+
+            with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+                f.write(f'\nrun_case_npy::modify_seg_fn seg sum: {np.sum(seg)}')
+
         if np.max(seg) > 127:
             seg = seg.astype(np.int16)
+            with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+                f.write(f'\nrun_case_npy::seg.astype(np.int16)')
         else:
+            with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+                f.write(f'\nrun_case_npy::seg.astype(np.int8)')
             seg = seg.astype(np.int8)
+
+
+        with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+            f.write(f'\nrun_case_npy::final seg sum: {np.sum(seg)}')
         return data, seg, properties
 
     def run_case(self, image_files: List[str], seg_file: Union[str, None], plans_manager: PlansManager,
@@ -127,6 +153,10 @@ class DefaultPreprocessor(object):
         so when we export we need to run the following order: resample -> crop -> transpose (we could also run
         transpose at a different place, but reverting the order of operations done during preprocessing seems cleaner)
         """
+
+        print('Called run_case()')
+
+
         if isinstance(dataset_json, str):
             dataset_json = load_json(dataset_json)
 
@@ -145,12 +175,23 @@ class DefaultPreprocessor(object):
             print(seg_file)
         data, seg, data_properties = self.run_case_npy(data, seg, data_properties, plans_manager, configuration_manager,
                                       dataset_json)
+
+        with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+            f.write(f'\nrun_case::final seg sum: {np.sum(seg)}')
+
         return data, seg, data_properties
 
     def run_case_save(self, output_filename_truncated: str, image_files: List[str], seg_file: str,
                       plans_manager: PlansManager, configuration_manager: ConfigurationManager,
                       dataset_json: Union[dict, str]):
+
+        print('Called run_case_save()')
+
         data, seg, properties = self.run_case(image_files, seg_file, plans_manager, configuration_manager, dataset_json)
+
+        with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+            f.write(f'\nrun_case::run_case seg sum: {np.sum(seg)}')
+
         data = data.astype(np.float32, copy=False)
         seg = seg.astype(np.int16, copy=False)
         # print('dtypes', data.dtype, seg.dtype)
@@ -162,6 +203,9 @@ class DefaultPreprocessor(object):
             seg.shape,
             tuple(configuration_manager.patch_size),
             seg.itemsize)
+
+        with open('/home/brooke.kindleman/ena1-aim2/202602240000/batch/outputs/run_crop_contents.txt', "a") as f:
+            f.write(f'\nrun_case_save::final seg sum: {np.sum(seg)}')
 
         nnUNetDatasetBlosc2.save_case(data, seg, properties, output_filename_truncated,
                                       chunks=chunk_size_data, blocks=block_size_data,
@@ -352,6 +396,9 @@ class DefaultPreprocessor(object):
         """
         data identifier = configuration name in plans. EZ.
         """
+
+        print('Called run()')
+
         dataset_name = maybe_convert_to_dataset_name(dataset_name_or_id)
 
         assert isdir(join(nnUNet_raw, dataset_name)), "The requested dataset could not be found in nnUNet_raw"
